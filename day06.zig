@@ -14,11 +14,11 @@ fn partA(gpa: std.mem.Allocator, input: []const u8) !usize {
         try iterators.append(gpa, iter);
     }
 
-    var operation = iterators.getLast();
+    var operation = iterators.pop() orelse unreachable;
     while (operation.next()) |token| {
         var res = try std.fmt.parseInt(usize, iterators.items[0].next() orelse unreachable, 10);
 
-        for (1..iterators.items.len - 1) |i| {
+        for (1..iterators.items.len) |i| {
             const n = try std.fmt.parseInt(usize, iterators.items[i].next() orelse unreachable, 10);
 
             switch (token[0]) {
@@ -43,49 +43,40 @@ fn partB(gpa: std.mem.Allocator, input: []const u8) !usize {
         if (line.len == 0) continue;
         try lines.append(gpa, line);
     }
-    const operator_line = lines.pop() orelse unreachable;
 
-    var operation: u8 = ' ';
-    var current_result: usize = 0;
+    var operators = std.mem.tokenizeScalar(u8, lines.pop() orelse unreachable, ' ');
 
     var offset: usize = 0;
-    while (true) {
-        var current_number: usize = 0;
-        var empty = true;
+    var buf = [_]u8{0} ** 10;
+    var buffer = std.ArrayList(u8).initBuffer(&(buf));
 
-        // parse current number vertically
-        for (lines.items) |line| {
-            if (offset >= line.len) continue;
+    while (operators.next()) |operation| {
+        const op = operation[0];
+        var current_result: usize = if (op == '+') 0 else 1;
 
-            const c = line[offset];
-            if (c != ' ') {
-                const n: u8 = c - '0';
-                empty = false;
-                current_number = current_number * 10 + n;
+        while (true) {
+            buffer.clearRetainingCapacity();
+
+            for (lines.items) |line| {
+                if (offset >= line.len or line[offset] == ' ') continue;
+                buffer.appendAssumeCapacity(line[offset]);
+            }
+            offset += 1;
+
+            if (buffer.items.len > 0) {
+                const nr = std.fmt.parseInt(usize, buffer.items, 10) catch unreachable;
+                switch (op) {
+                    '+' => current_result += nr,
+                    '*' => current_result *= nr,
+                    else => unreachable,
+                }
+            } else {
+                part_b += current_result;
+                break;
             }
         }
-
-        if (offset < operator_line.len) {
-            const potential_operation = operator_line[offset];
-            if (potential_operation != ' ') operation = potential_operation;
-        }
-
-        if (empty) {
-            part_b += current_result;
-            current_result = 0;
-            if (offset >= operator_line.len) break;
-        } else {
-            switch (operation) {
-                '+' => current_result += current_number,
-                '*' => current_result = current_number * (if (current_result == 0) 1 else current_result),
-                else => unreachable,
-            }
-        }
-
-        offset += 1;
     }
-
-    return part_b + current_result;
+    return part_b;
 }
 
 pub fn main() !void {
@@ -108,4 +99,14 @@ pub fn main() !void {
 
     print("Part A: {d}\n", .{part_a});
     print("Part B: {d}\n", .{part_b});
+}
+
+test "day06" {
+    const input = @embedFile("example.06.txt");
+    const allocator = std.heap.DebugAllocator(.{}){};
+    const gpa = allocator.allocator();
+    defer std.testing.expect(allocator.deinit() == .ok);
+
+    std.testing.expect(partA(gpa, input) == 4277556);
+    std.testing.expect(partB(gpa, input) == 3263827);
 }
