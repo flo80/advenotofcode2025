@@ -102,11 +102,13 @@ pub fn main() !void {
 }
 
 test "day06" {
-    const input = @embedFile("example.06.txt");
-    const allocator = std.heap.DebugAllocator(.{}){};
+    const input = @embedFile("example06.txt");
+    var allocator = std.heap.DebugAllocator(.{}){};
     const gpa = allocator.allocator();
-    defer std.testing.expect(allocator.deinit() == .ok);
 
-    std.testing.expect(partA(gpa, input) == 4277556);
-    std.testing.expect(partB(gpa, input) == 3263827);
+    const a = try partA(gpa, input);
+    try std.testing.expect(a == 4277556);
+
+    const b = try partB(gpa, input);
+    try std.testing.expect(b == 3263827);
 }
