@@ -1,2 +1,4 @@
 day*.txt
 example*.txt
+zig-out
+.zig-cache
