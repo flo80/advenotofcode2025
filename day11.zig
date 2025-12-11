@@ -5,20 +5,11 @@ const Allocator = std.mem.Allocator;
 
 const Id = u24;
 const Destinations = std.ArrayList(Id);
-const WaysToGetToId = std.AutoArrayHashMap(Id, usize);
 const ParsedInput = std.AutoArrayHashMap(Id, Destinations);
-
-const Path = std.ArrayList(Id);
 
 inline fn toId(str: []const u8) Id {
     assert(str.len == 3);
     return std.mem.bytesToValue(Id, std.mem.sliceAsBytes(str));
-}
-
-fn lessThan(dists: *WaysToGetToId, a: Id, b: Id) std.math.Order {
-    const dist_a = dists.get(a) orelse @panic("unexpected dist");
-    const dist_b = dists.get(b) orelse @panic("unexpected dist");
-    return std.math.order(dist_a, dist_b);
 }
 
 fn parse(allocator: Allocator, input: []const u8) !ParsedInput {
@@ -41,37 +32,55 @@ fn parse(allocator: Allocator, input: []const u8) !ParsedInput {
     return destinations;
 }
 
-fn countNumberOfWays(comptime start: Id, comptime end: Id, allocator: Allocator, destinations: ParsedInput) !?u64 {
-    var ways = WaysToGetToId.init(allocator);
-    var queue = std.PriorityQueue(Id, *WaysToGetToId, lessThan).init(allocator, &ways);
-    defer queue.deinit();
+const MemoizedCount = struct {
+    destinations: ParsedInput,
+    cache: std.AutoHashMap(u48, u64),
 
-    try queue.add(start);
-    while (queue.count() > 0) {
-        const current = queue.remove();
-
-        if (destinations.get(current)) |dests_for_current| {
-            for (dests_for_current.items) |d| {
-                const c = ways.get(d) orelse 0;
-                try ways.put(d, c + 1);
-                if (d != end) try queue.add(d);
-            }
-        }
+    pub fn init(allocator: Allocator, destinations: ParsedInput) @This() {
+        return .{
+            .destinations = destinations,
+            .cache = std.AutoHashMap(u48, u64).init(allocator),
+        };
     }
 
-    return ways.get(end);
+    pub fn deinit(self: *@This()) void {
+        self.cache.deinit();
+    }
+
+    pub fn count(self: *@This(), start: Id, end: Id) !u64 {
+        if (start == end) return 1;
+
+        const key = @as(u48, start) << 24 | @as(u48, end);
+        if (self.cache.get(key)) |res| return res;
+
+        var value: u64 = 0;
+        if (self.destinations.get(start)) |dests_for_current| {
+            for (dests_for_current.items) |d| {
+                value += try self.count(d, end);
+            }
+        }
+
+        try self.cache.put(key, value);
+        return value;
+    }
+};
+
+fn partA(ct: *MemoizedCount) !u64 {
+    return try ct.count(comptime toId("you"), comptime toId("out"));
 }
 
-fn partA(alloc: Allocator, input: []const u8) !u64 {
-    const starting = comptime toId("you");
-    const destination = comptime toId("out");
+fn partB(ct: *MemoizedCount) !u64 {
+    const svr_dac_fft_out =
+        try ct.count(comptime toId("svr"), comptime toId("dac")) *
+        try ct.count(comptime toId("dac"), comptime toId("fft")) *
+        try ct.count(comptime toId("fft"), comptime toId("out"));
 
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const svr_fft_dac_out =
+        try ct.count(comptime toId("svr"), comptime toId("fft")) *
+        try ct.count(comptime toId("fft"), comptime toId("dac")) *
+        try ct.count(comptime toId("dac"), comptime toId("out"));
 
-    const destinations = try parse(allocator, input);
-    return (try countNumberOfWays(starting, destination, allocator, destinations)).?;
+    return svr_dac_fft_out + svr_fft_dac_out;
 }
 
 pub fn main() !void {
@@ -89,11 +98,18 @@ pub fn main() !void {
 
     print("Day 11\nInput File: {s}\n", .{file});
 
-    const part_a = try partA(gpa, input);
-    // const part_b = try partB(gpa, input);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const destinations = try parse(arena_allocator, input);
+    var memo_count = MemoizedCount.init(arena_allocator, destinations);
+
+    const part_a = try partA(&memo_count);
+    const part_b = try partB(&memo_count);
 
     print("Part A: {d}\n", .{part_a});
-    // print("Part B: {d}\n", .{part_b});
+    print("Part B: {d}\n", .{part_b});
 }
 
 test "day11a" {
@@ -101,5 +117,27 @@ test "day11a" {
     var allocator = std.heap.DebugAllocator(.{}){};
     const gpa = allocator.allocator();
 
-    try std.testing.expectEqual(5, partA(gpa, input));
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const destinations = try parse(arena_allocator, input);
+    var memo_count = MemoizedCount.init(arena_allocator, destinations);
+
+    try std.testing.expectEqual(5, partA(&memo_count));
+}
+
+test "day11b" {
+    const input = @embedFile("example11b.txt");
+    var allocator = std.heap.DebugAllocator(.{}){};
+    const gpa = allocator.allocator();
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const destinations = try parse(arena_allocator, input);
+    var memo_count = MemoizedCount.init(arena_allocator, destinations);
+
+    try std.testing.expectEqual(2, partB(&memo_count));
 }
